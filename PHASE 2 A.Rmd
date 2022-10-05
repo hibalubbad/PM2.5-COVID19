@@ -1,0 +1,390 @@
+
+---
+title: "PHASE 2 A"
+author: "Nourhan Berjawi"
+date: "11/15/2020"
+output: html_document
+---
+
+```{r setup, echo = FALSE}
+setwd("~/Desktop/historypm2.5")
+library(tidyverse)
+library(caret) 
+library(plyr)
+library(dplyr) 
+library(anomalize)
+library(bnstruct)
+library(forecast)
+```
+
+We have used the data for the PM2.5 concentrations from the past 20 years for around 900 US counties.
+
+The first step is to read the .csv files for the years 2000 till 2020. For every year, there are two data-sets. The first one is named "pm2.5X.csv" and refers to recordings taken using the FRM/FEM method; the second one is named "pm2.5nX.csv" and refers to recordings taken using a non-FRM/FEM method.
+The two datasets have values for distinct dates. This is why we decided to consider both methods, and collect as much recordings of pm2.5/county as we can.
+
+Moreover, upon reading each data-set, we do some alterations:
+  1) remove all columns except those of pm2.5 daily average, state, county, longitude, and latitude
+  2) create location column
+  3) order by location and date
+  4) replace negative PM2.5 values with zero (according to the data-set source, the monitors record a negative value when the PM2.5 value recorded is very low and the monitor hasn't been calibrated for a while)
+  5) bind the FRM/FEM data with the non-FRM/FEM data
+```{r getPM2.5}
+
+setwd("~/Desktop/historypm2.5")
+pm2.52000 <- read.csv("pm2.52000.csv")
+pm2.5n2000 <- read.csv("pm2.5n2000.csv")
+
+
+pm2.52000 <- pm2.52000[c(6,7,12,17,25,26)]
+pm2.5n2000 <- pm2.5n2000[c(6,7,12,17,25,26)]
+pm2.52000$Date.Local <- as.Date(pm2.52000$Date.Local)
+pm2.5n2000$Date.Local <- as.Date(pm2.5n2000$Date.Local)
+pm2.52000$location <-paste(as.character(pm2.52000$State.Name),as.character(pm2.52000$County.Name))
+pm2.52000$Longitude <- as.integer(pm2.52000$Longitude)
+pm2.52000$Latitude <- as.integer(pm2.52000$Latitude)
+pm2.5n2000$Longitude <- as.integer(pm2.5n2000$Longitude)
+pm2.5n2000$Latitude <- as.integer(pm2.5n2000$Latitude)
+pm2.5n2000$location <-paste(as.character(pm2.5n2000$State.Name),as.character(pm2.5n2000$County.Name))
+pm2.52000 <- pm2.52000[c(1,2,3,4,7)]
+pm2.5n2000 <- pm2.5n2000[c(1,2,3,4,7)]
+names(pm2.5n2000)[names(pm2.5n2000) == "Arithmetic.Mean"] <- "Arithmetic.Mean2"
+pm2.52000<- merge(pm2.5n2000,pm2.52000 ,by = c("location","Date.Local","Longitude","Latitude"),all = TRUE)
+pm2.52000$Arithmetic.Mean <- rowMeans(pm2.52000[,c('Arithmetic.Mean', 'Arithmetic.Mean2')], na.rm=TRUE)
+
+pm2.52000 <- pm2.52000[c(1:4,6)]
+pm2.52000 <- pm2.52000[order(pm2.52000$location, pm2.52000$Date.Local),]
+names(pm2.52000)[names(pm2.52000) == "Date.Local"] <- "date"
+names(pm2.52000)[names(pm2.52000) == "Arithmetic.Mean"] <- "pm2.5"
+pm2.52000$pm2.5[pm2.52000$pm2.5<0] <-0
+summary(pm2.52000)
+
+pm2.5location <- unique(pm2.52000$location)
+binder <- pm2.52000
+
+binderF <- function(dataset1,dataset2, bind)
+            {
+              setwd("~/Desktop/historypm2.5")
+              x <- gsub(" ", "", paste(as.character(dataset1), ".csv"))
+              y <- gsub(" ", "", paste(as.character(dataset2), ".csv"))
+              dataset1 <- read.csv(x)
+              dataset2 <- read.csv(y)
+              dataset1 <- dataset1[c(6,7,12,17,25,26)]
+              dataset2 <- dataset2[c(6,7,12,17,25,26)]
+              dataset1$Date.Local <- as.Date(dataset1$Date.Local)
+              dataset2$Date.Local <- as.Date(dataset2$Date.Local)
+              dataset1$location <-paste(as.character(dataset1$State.Name),as.character(dataset1$County.Name))
+              dataset2$location <-paste(as.character(dataset2$State.Name),as.character(dataset2$County.Name))
+              dataset1$Longitude <- as.integer(dataset1$Longitude)
+              dataset1$Latitude <- as.integer(dataset1$Latitude)
+              dataset2$Longitude <- as.integer(dataset2$Longitude)
+              dataset2$Latitude <- as.integer(dataset2$Latitude)
+              dataset1 <- dataset1[c(1,2,3,4,7)]
+              dataset2 <- dataset2[c(1,2,3,4,7)]
+              names(dataset2)[names(dataset2) == "Arithmetic.Mean"] <- "Arithmetic.Mean2"
+
+              dataset1 <- merge(dataset1, dataset2,by = c("location","Date.Local","Longitude","Latitude"),all = TRUE)
+
+              dataset1$Arithmetic.Mean <- rowMeans(dataset1[,c('Arithmetic.Mean', 'Arithmetic.Mean2')], na.rm=TRUE)
+
+              dataset1 <- dataset1[c(1:5)]
+
+              dataset1 <- dataset1[order(dataset1$location, dataset1$Date.Local),]
+              names(dataset1)[names(dataset1) == "Date.Local"] <- "date"
+
+              names(dataset1)[names(dataset1) == "Arithmetic.Mean"] <- "pm2.5"
+              dataset1$pm2.5[dataset1$pm2.5<0] <-0
+              bind <- rbind(bind,dataset1)
+            
+              bind <- bind[order(bind$location,bind$date),]
+              return(bind)
+            }
+
+binder <- binderF("pm2.52001", "pm2.5n2001", binder )
+binder <- binderF("pm2.52002", "pm2.5n2002", binder )
+binder <- binderF("pm2.52003", "pm2.5n2003", binder )
+binder <- binderF("pm2.52004", "pm2.5n2004", binder )
+binder <- binderF("pm2.52005", "pm2.5n2005", binder )
+binder <- binderF("pm2.52006", "pm2.5n2006", binder )
+binder <- binderF("pm2.52007", "pm2.5n2007", binder )
+binder <- binderF("pm2.52008", "pm2.5n2008", binder )
+binder <- binderF("pm2.52009", "pm2.5n2009", binder )
+binder <- binderF("pm2.52010", "pm2.5n2010", binder )
+binder <- binderF("pm2.52011", "pm2.5n2011", binder )
+binder <- binderF("pm2.52012", "pm2.5n2012", binder )
+binder <- binderF("pm2.52013", "pm2.5n2013", binder )
+binder <- binderF("pm2.52014", "pm2.5n2014", binder )
+binder <- binderF("pm2.52015", "pm2.5n2015", binder )
+binder <- binderF("pm2.52016", "pm2.5n2016", binder )
+binder <- binderF("pm2.52017", "pm2.5n2017", binder )
+binder <- binderF("pm2.52018", "pm2.5n2018", binder )
+binder <- binderF("pm2.52019", "pm2.5n2019", binder )
+binder <- binderF("pm2.52020", "pm2.5n2020", binder )
+```
+
+Now, we begin exploring the data.
+```{r explorePM2.5, echo = FALSE}
+nrow(binder)
+summary(binder)
+plot(table(binder$pm2.5))
+head(binder)
+```
+
+
+We must now generate a table of the indicators of the PM2.5 longterm exposure.
+
+We decided to compute the mean, median, standard deviation, maximum, minimum, and number of days from which these values were generated.We also created 3 indicators called normal, unhealthy, and hazardous. These three columns have the percentage of days that fall within the following ranges of PM2.5 air concentration:
+  normal: below 12
+  unhealthy: 13 to 35
+  hazardous: above 35
+
+
+```{r indicator, message=FALSE, warning=FALSE, out.width="33%", fig.show="hold", echo = FALSE}
+#GENERATE INDICATOR TABLE
+finalloc <- unique(binder$location)
+indicator <- data.frame(finalloc)
+indicator$mean <- 0
+indicator$sd <- 0
+indicator$median<- 0
+indicator$var<- 0
+indicator$min<- 0
+indicator$max<- 0
+indicator$normal<- 0
+indicator$unhealthy<- 0
+indicator$hazardous<- 0
+indicator$accuracy <- 0
+indicator$longitude <- 0
+indicator$latitude <- 0
+for (i in finalloc)
+{
+  x <- binder[binder$location == i,]
+  indicator$mean[indicator$finalloc == i] <-  as.integer(mean(x$pm2.5, na.rm = FALSE))
+  indicator$sd[indicator$finalloc == i] <- as.integer(sd(x$pm2.5))
+  indicator$median[indicator$finalloc == i] <- as.integer(median(x$pm2.5))
+  indicator$var[indicator$finalloc == i] <- as.integer(var(x$pm2.5))
+  indicator$max[indicator$finalloc == i] <- as.integer(max(x$pm2.5))
+  indicator$min[indicator$finalloc == i] <- as.integer(min(x$pm2.5))
+  # 0-100, 101-200, 201- max
+  indicator$normal[indicator$finalloc == i]<-  as.integer((sum(x$pm2.5 < 12)/length(x$pm2.5))*100)
+  indicator$unhealthy[indicator$finalloc == i]<-  as.integer((sum(x$pm2.5 > 12 && x$pm2.5 < 35)/length(x$pm2.5))*100)
+  indicator$hazardous[indicator$finalloc == i]<-  as.integer((sum(x$pm2.5 > 35)/length(x$pm2.5))*100)
+  indicator$accuracy[indicator$finalloc == i] <-  as.integer((nrow(x))*100)
+  indicator$longitude[indicator$finalloc == i] <- x$Longitude[1]
+  indicator$latitude[indicator$finalloc == i] <- x$Latitude[1]
+  
+}
+
+
+```
+
+Now we look at the distribution of the computed indicators.
+```{r exploreMore}
+plot(table(indicator$mean))
+plot(table(indicator$median))
+plot(table(indicator$max))
+plot(table(indicator$min))
+plot(table(indicator$var))
+plot(table(indicator$sd))
+plot(table(indicator$normal))
+plot(table(indicator$hazardous))
+plot(table(indicator$unhealthy))
+plot(table(indicator$accuracy))
+
+# indicator$longitude
+# setwd("C:/Users/MQAYM/Desktop") 
+# write.csv(indicator,file="indicator.csv", row.names = FALSE)
+```
+Accordingly, we choose the 500 counties with the most reliable histories (most recorded number of days).
+
+```{r}
+
+location <- intersect(indicator$)
+
+```
+
+
+```{r}
+setwd("~/Desktop")
+cases2020 <- read.csv("casesdeaths.csv")
+cases2020 <- cases2020[c(4,5,6,8,10,12,13)]
+cases2020$location <-paste(as.character(cases2020$state),as.character(cases2020$location_name))
+cases2020 <- distinct(cases2020[c(3:8)])
+cases2020$date <- as.Date(cases2020$date)
+names(cases2020)[names(cases2020) == "date"] <- "Date.Local"
+cases2020 <- cases2020[order(cases2020$location,cases2020$Date.Local),]
+summary(cases2020)
+# new_cases and new_deaths have negative values
+cases2020$new_cases[cases2020$new_cases < 0] <- NA
+cases2020$new_deaths[cases2020$new_deaths < 0] <- NA
+summary(cases2020)
+newCases <- cases2020[1,]
+
+finalloc <- unique(intersect(cases2020$location, binder$location))
+for (i in finalloc)
+{
+  x <- cases2020[cases2020$location == i,]
+  x[1,]$new_cases <- 0
+  x[1,]$new_deaths <- 0
+  for (j in 2:nrow(x))
+  {
+    if (x[j,]$cumulative_cases < x[j-1,]$cumulative_cases)
+      {
+      
+      x[j,]$cumulative_cases <- x[j-1,]$cumulative_cases
+      }
+    if (x[j,]$cumulative_deaths < x[j-1,]$cumulative_deaths)
+    {
+      x[j,]$cumulative_deaths <- x[j-1,]$cumulative_deaths
+      }
+    if (is.na(x[j,]$new_cases)) { x[j,]$new_cases <- x[j,]$cumulative_cases - x[j-1,]$cumulative_cases }
+    if (is.na(x[j,]$new_deaths)) { x[j,]$new_deaths <- x[j,]$cumulative_deaths - x[j-1,]$cumulative_deaths }
+  }
+  newCases <- rbind(newCases,x)
+}
+
+newCases <- newCases[2:nrow(newCases),]
+summary(newCases)
+write.csv(newCases,file = "newCases.csv")
+```
+
+```{r bindCasesIndicator}
+
+setwd("~/Desktop")
+health <- read.csv("final_vars.csv")
+# indicator <- read.csv("indicator.csv")
+health <- health[c(1:27,33)]
+head(health)
+names(indicator)[names(indicator) == "finalloc"] <- "location"
+vars <- merge(indicator,health, by ="location")
+summary(vars)
+
+```
+
+
+```{r tempplot, echo=FALSE, fig.show="hold", message=FALSE, warning=FALSE, out.width="25%"}
+setwd("~/Desktop/temp")
+temp2020 <- read.csv("temp2020.csv")
+temp2020 <- temp2020[c(12,17,25,26)]
+temp2020$location <-paste(as.character(temp2020$State.Name),as.character(temp2020$County.Name))
+temp2020 <- distinct(temp2020[c(1,2,5)])
+temp2020$Date.Local <- as.Date(temp2020$Date.Local)
+names(temp2020)[names(temp2020) == "Arithmetic.Mean"] <- "temp"
+temp2020<-aggregate(x = temp2020$temp, by = list(temp2020$Date.Local,temp2020$location), FUN = mean)
+names(temp2020)[names(temp2020) == "x"] <- "temp"
+names(temp2020)[names(temp2020) == "Group.1"] <- "Date.Local"
+names(temp2020)[names(temp2020) == "Group.2"] <- "location"
+uniqueL <- unique(temp2020$location)
+sz <- length(uniqueL)
+for (i in 1:20)
+{
+  x <- sample(2:sz, 1)
+  sm <- temp2020[temp2020$location==uniqueL[x],]
+  print(ggplot(sm, aes(Date.Local,temp))+geom_line()+geom_smooth(span = 0.3) +ggtitle(uniqueL[x]))
+}
+```
+
+``` {r wind, message=FALSE, warning=FALSE, out.width="25%", fig.show="hold", echo = FALSE}
+#GETTING WIND2020
+setwd("~/Desktop/wind")
+wind2020 <- read.csv("wind2020.csv")
+wind2020 <- wind2020[c(12,17,25,26)]
+wind2020$location <-paste(as.character(wind2020$State.Name),as.character(wind2020$County.Name))
+wind2020 <- distinct(wind2020[c(1,2,5)])
+wind2020 <- wind2020[order(wind2020$location,wind2020$Date.Local),]
+names(wind2020)[names(wind2020) == "Arithmetic.Mean"] <- "wind"
+wind2020<-aggregate(x = wind2020$wind, by = list(wind2020$Date.Local,wind2020$location), FUN = mean)
+names(wind2020)[names(wind2020) == "x"] <- "wind"
+names(wind2020)[names(wind2020) == "Group.1"] <- "Date.Local"
+names(wind2020)[names(wind2020) == "Group.2"] <- "location"
+wind2020$Date.Local <- as.Date(wind2020$Date.Local)
+uniqueL <- unique(wind2020$location)
+sz <- length(uniqueL)
+for (i in 1:20)
+{
+  x <- sample(2:sz, 1)
+  sm <- wind2020[wind2020$location==uniqueL[x],]
+  print(ggplot(sm, aes(Date.Local,wind))+geom_line() +geom_smooth(span = 0.3) +ggtitle(uniqueL[x]))
+}
+```
+```{r}
+
+```
+```{r locations}
+locations <- intersect(vars$location, intersect(cases2020$location,intersect(wind2020$location,temp2020$location)))
+vars <- vars[vars$location %in% locations,]
+vars <- vars[vars$accuracy > quantile(vars$accuracy, c(0.25)),]
+FINAL_LOCATIONS <- vars$location
+temp2020 <- temp2020[temp2020$location %in% FINAL_LOCATIONS,]
+wind2020 <-wind2020[wind2020$location %in% FINAL_LOCATIONS,]
+cases2020$Date.Local <- as.Date(cases2020$Date.Local )
+cases2020 <- cases2020[cases2020$location %in% FINAL_LOCATIONS,]
+daily_data <- merge(cases2020,merge(wind2020,temp2020))
+daily_data <- daily_data[order(daily_data$location,daily_data$location),]
+
+non_daily_data <- vars
+data <- merge(non_daily_data,cases2020)
+
+#Creating Lags
+library(DataCombine)
+locations <- unique(data$location)
+
+lag1 <- data.frame()
+for (i in locations){
+  print("here1")
+  l <- subset(data, data$location==i)
+  print(l)
+  ndeaths<- l$new_deaths
+  print(ndeaths)
+  print("here3")
+  for (j in c(1:10)){
+    print(ndeaths)
+    ndeaths <- cbind(ndeaths,shift(ndeaths,j))
+  }
+  print(ndeaths)
+  lag1 <- cbind(lag1,ndeaths)
+}
+
+lag2 <- data.frame()
+for (i in locations){
+  l <- subset(data, data$location==i)
+  ncases <- l$new_cases
+  for (j in c(1:9)){
+    ncases <- cbind(ncases,shift(ncases,j))
+  }
+  lag2 <- rbind(lag2,ncases)
+}
+lag3 <- data.frame()
+for (i in locations){
+  l <- subset(data, data$location==i)
+  wind <- l$wind
+  for (j in c(1:9)){
+    wind <- cbind(wind,shift(wind,j))
+  }
+  lag3 <- rbind(lag3,wind)
+}
+lag4 <- data.frame()
+for (i in locations){
+  l <- subset(data, data$location==i)
+  temp <- l$temp
+  for (j in c(1:9)){
+    temp <- cbind(temp,shift(temp,j))
+  }
+  lag4 <- rbind(lag4,wind)
+}
+
+
+summary(data)
+data <- cbind(data,cbind(lag2,lag))
+```
+
+```{r}
+write.csv(vars$location, "locFinal.csv", row.names = FALSE)
+
+plot(table(vars$mean))
+plot(table(vars$median))
+plot(table(vars$sd))
+plot(table(vars$hazardous))
+
+```
+
+
+
